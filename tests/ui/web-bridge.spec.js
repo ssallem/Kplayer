@@ -52,12 +52,20 @@ test("public HTTPS page connects via popup, transfers only selected files and co
   const errors = [],
     uploads = [],
     commands = [];
+  const failedRequests = [];
+  context.on("requestfailed", (req) => {
+    if (!req.url().startsWith("http://localhost:3212/api/")) return;
+    failedRequests.push({
+      path: new URL(req.url()).pathname,
+      error: req.failure()?.errorText,
+    });
+  });
   context.on("page", (popup) =>
     popup.on("pageerror", (e) => errors.push(e.message)),
   );
   page.on("pageerror", (e) => errors.push(e.message));
   context.on("request", (req) => {
-    if (req.url().endsWith("/api/upload")) uploads.push(req.url());
+    if (req.url().endsWith("/api/uploads")) uploads.push(req.url());
   });
   // The bridge/API/file transfer is real; only TV hardware responses are simulated.
   const device = {
@@ -102,30 +110,34 @@ test("public HTTPS page connects via popup, transfers only selected files and co
         window.testPort = event.ports[0];
     }),
   );
+  const fixtureDirectory = await fs.mkdtemp(
+    path.resolve("data/test-fixtures/disk-bridge-"),
+  );
+  await fs.copyFile(
+    "data/test-fixtures/sample.mp4",
+    path.join(fixtureDirectory, "bridge.mp4"),
+  );
+  // A valid MP4 free box crosses the 4 MiB boundary without changing the clip.
+  const padding = Buffer.alloc(4 * 1024 * 1024 + 8);
+  padding.writeUInt32BE(padding.length);
+  padding.write("free", 4);
+  await fs.appendFile(path.join(fixtureDirectory, "bridge.mp4"), padding);
+  await fs.writeFile(
+    path.join(fixtureDirectory, "bridge.srt"),
+    "1\n00:00:00,000 --> 00:00:05,000\n웹에서 TV로 자동 자막",
+  );
+  await fs.writeFile(
+    path.join(fixtureDirectory, "unrelated.srt"),
+    "1\n00:00:00,000 --> 00:00:05,000\n보내지 않을 자막",
+  );
   await page
     .locator("input[type=file]")
     .first()
-    .setInputFiles([
-      {
-        name: "bridge.mp4",
-        mimeType: "video/mp4",
-        buffer: await fs.readFile("data/test-fixtures/sample.mp4"),
-      },
-      {
-        name: "bridge.srt",
-        mimeType: "text/plain",
-        buffer: Buffer.from(
-          "1\n00:00:00,000 --> 00:00:05,000\n웹에서 TV로 자동 자막",
-        ),
-      },
-      {
-        name: "unrelated.srt",
-        mimeType: "text/plain",
-        buffer: Buffer.from(
-          "1\n00:00:00,000 --> 00:00:05,000\n보내지 않을 자막",
-        ),
-      },
-    ]);
+    .setInputFiles(
+      ["bridge.mp4", "bridge.srt", "unrelated.srt"].map((name) =>
+        path.join(fixtureDirectory, name),
+      ),
+    );
   await expect(page.getByText("자막 연결됨", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Chromecast 연결", exact: true }),
@@ -177,6 +189,14 @@ test("public HTTPS page connects via popup, transfers only selected files and co
     fullPage: true,
   });
   await dialog.getByRole("button", { name: /테스트 TV/ }).click();
+  await expect
+    .poll(async () => ({
+      playing: await page
+        .getByText("테스트 TV에서 재생 중", { exact: true })
+        .count(),
+      failures: failedRequests,
+    }))
+    .toEqual({ playing: 1, failures: [] });
   await expect(
     page.getByText("테스트 TV에서 재생 중", { exact: true }),
   ).toBeVisible();
@@ -201,6 +221,9 @@ test("public HTTPS page connects via popup, transfers only selected files and co
       await request.get(mediaUrl, { headers: { Range: "bytes=0-31" } })
     ).status(),
   ).toBe(206);
+  expect(await (await request.get(mediaUrl)).body()).toEqual(
+    await fs.readFile(path.join(fixtureDirectory, "bridge.mp4")),
+  );
   await page.getByRole("button", { name: "음량 1% 줄이기" }).click();
   await expect.poll(() => cast.volume).toBe(0.69);
   await page.getByRole("button", { name: "TV 재생 전환" }).click();
@@ -219,6 +242,59 @@ test("public HTTPS page connects via popup, transfers only selected files and co
   expect((await (await request.get("/api/state")).json()).items).toEqual([]);
   expect((await request.get(mediaUrl)).status()).toBe(404);
   expect(errors).toEqual([]);
+  await popup.close();
+});
+
+test("interrupted disk transfer removes the partial import and gives an actionable error", async ({
+  page,
+  context,
+  request,
+}) => {
+  await request.post("/api/privacy/clear");
+  await servePublic(context);
+  const fixture = path.resolve("data/test-fixtures/interrupted.mp4");
+  await fs.writeFile(fixture, Buffer.alloc(4 * 1024 * 1024 + 100));
+  let uploadId,
+    aborted = false;
+  await context.route("http://localhost:3212/api/uploads", async (route) => {
+    const response = await route.fetch();
+    const result = await response.json();
+    uploadId = result.id;
+    await route.fulfill({ response, json: result });
+  });
+  await context.route("http://localhost:3212/api/uploads/*/chunk?*", (route) =>
+    Number(new URL(route.request().url()).searchParams.get("offset")) > 0
+      ? route.abort("failed")
+      : route.continue(),
+  );
+  context.on("request", (request) => {
+    if (request.url().endsWith("/abort")) aborted = true;
+  });
+  await page.goto(publicUrl);
+  await page.locator("input[type=file]").first().setInputFiles(fixture);
+  const opened = page.waitForEvent("popup");
+  await page
+    .getByRole("button", { name: "Chromecast 연결", exact: true })
+    .click();
+  const popup = await opened;
+  await popup
+    .getByRole("button", { name: "웹 플레이어 연결", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "TV 연결" });
+  await dialog
+    .getByRole("textbox", { name: "TV IP 주소" })
+    .fill("192.168.1.20");
+  await dialog
+    .getByRole("button", { name: "이 TV로 재생", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toContainText(
+    "PC 연결 서버에 요청을 보내지 못했습니다",
+  );
+  expect(aborted).toBe(true);
+  expect((await request.post(`/api/uploads/${uploadId}/finish`)).status()).toBe(
+    404,
+  );
+  expect((await (await request.get("/api/state")).json()).items).toEqual([]);
   await popup.close();
 });
 

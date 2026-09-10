@@ -13,6 +13,8 @@ KPLAYER is designed for a trusted home network. Do not expose a local server por
 
 ## Local internet/offline players
 
+- Web file import uses at most 4 MiB ArrayBuffer transfers read by the selecting tab, followed by same-origin HTTP chunk requests from the companion. Disk-backed File handles are not forwarded across origins. Upload IDs are scoped to that companion window; the server enforces byte order, declared length, file-type/size limits and generated filenames. Partial files are not published as media. Failed transfers are aborted; inactive partial transfers expire after two minutes and are also removed by normal session cleanup.
+
 - EXE launchers run with the current user's privileges, start the bundled Node runtime directly without a shell, and use a per-mode mutex to avoid duplicate tray processes. They do not install a service, modify startup settings, request administrator access, or add playback history. The tray exit command uses the server's normal cleanup endpoint. Current release binaries are not Authenticode-signed.
 
 - Controls only accept loopback clients and matching local Host/Origin. LAN clients can only access scoped media URLs or the offline pairing page/protocol.

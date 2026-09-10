@@ -9,6 +9,7 @@ let peer,
   presence,
   busy = false;
 const owned = new Set();
+const pendingUploads = new Set();
 window.addEventListener("message", (event) => {
   if (
     channel ||
@@ -24,18 +25,33 @@ window.addEventListener("message", (event) => {
   status.textContent = "공개 웹 플레이어가 연결을 요청했습니다.";
 });
 async function api(path, body) {
-  const response = await fetch(
-    path,
-    body === undefined
-      ? {}
-      : body instanceof FormData
-        ? { method: "POST", body }
-        : {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-  );
+  let response;
+  try {
+    response = await fetch(
+      path,
+      body === undefined
+        ? {}
+        : body instanceof ArrayBuffer
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/octet-stream" },
+              body,
+            }
+          : {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+    );
+  } catch {
+    throw new Error(
+      "PC 연결 서버에 요청을 보내지 못했습니다. 연결 EXE와 PC 연결 창을 다시 열어 주세요.",
+    );
+  }
+  if (!response.headers.get("content-type")?.includes("application/json"))
+    throw new Error(
+      "PC 연결 프로그램을 최신 버전으로 업데이트하고 연결 창을 다시 열어 주세요.",
+    );
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "PC 요청에 실패했습니다.");
   return result;
@@ -58,13 +74,41 @@ connect.onclick = () => {
         if (busy) throw new Error("PC 작업이 끝난 뒤 다시 시도해 주세요.");
         busy = true;
         try {
-          if (action === "upload") {
-            if (!(body instanceof File))
-              throw new Error("선택한 파일만 전달할 수 있습니다.");
-            const form = new FormData();
-            form.append("file", body);
-            result = await api("/api/upload", form);
-            owned.add(result.id);
+          if (action === "upload-begin") {
+            result = await api("/api/uploads", {
+              name: body?.name,
+              size: body?.size,
+            });
+            pendingUploads.add(result.id);
+          } else if (
+            ["upload-chunk", "upload-finish", "upload-abort"].includes(action)
+          ) {
+            if (!pendingUploads.has(body?.uploadId))
+              throw new Error(
+                "이 연결 창에서 시작한 파일 전송만 처리할 수 있습니다.",
+              );
+            const base = "/api/uploads/" + encodeURIComponent(body.uploadId);
+            if (action === "upload-chunk") {
+              if (
+                !(body.bytes instanceof ArrayBuffer) ||
+                !Number.isSafeInteger(body.offset) ||
+                body.offset < 0
+              )
+                throw new Error("파일 조각이 올바르지 않습니다.");
+              result = await api(
+                base + "/chunk?offset=" + body.offset,
+                body.bytes,
+              );
+            } else {
+              result = await api(
+                base + (action === "upload-finish" ? "/finish" : "/abort"),
+                {},
+              );
+              pendingUploads.delete(body.uploadId);
+              if (action === "upload-finish") owned.add(result.id);
+            }
+          } else if (action === "upload") {
+            throw new Error("웹 플레이어를 새로고침한 뒤 다시 연결해 주세요.");
           } else if (action === "scan") result = await api("/api/scan", {});
           else if (action === "connect")
             result = await api("/api/cast/connect", { address: body?.address });
@@ -89,6 +133,7 @@ connect.onclick = () => {
           else if (action === "clear") {
             result = await api("/api/privacy/clear", {});
             owned.clear();
+            pendingUploads.clear();
           } else throw new Error("허용되지 않은 요청입니다.");
         } finally {
           busy = false;
@@ -101,7 +146,7 @@ connect.onclick = () => {
   };
   presence = new EventSource("/api/presence");
   peer.postMessage(
-    { type: "kplayer-connected", nonce },
+    { type: "kplayer-connected", nonce, protocolVersion: 2 },
     window.KPLAYER_WEB_ORIGIN,
     [channel.port2],
   );

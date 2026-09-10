@@ -36,6 +36,16 @@ export class Companion {
         )
           return;
         cleanup();
+        if (e.data.protocolVersion !== 2) {
+          e.ports[0].close();
+          this.popup.close();
+          reject(
+            new Error(
+              "PC 연결 프로그램을 v1.3.1 이상으로 업데이트한 뒤 다시 연결해 주세요.",
+            ),
+          );
+          return;
+        }
         this.port = e.ports[0];
         this.port.onmessage = ({ data }) => {
           const request = this.pending.get(data.id);
@@ -71,7 +81,7 @@ export class Companion {
     });
     return this.connecting;
   }
-  request(action, body) {
+  request(action, body, transfer = []) {
     if (!this.port || this.popup.closed)
       return Promise.reject(new Error("PC 연결 창을 다시 열어 주세요."));
     const id = crypto.randomUUID();
@@ -86,8 +96,53 @@ export class Companion {
         action === "upload" ? 30 * 60 * 1000 : 35000,
       );
       this.pending.set(id, { resolve, reject, timer });
-      this.port.postMessage({ id, action, body });
+      try {
+        this.port.postMessage({ id, action, body }, transfer);
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
+  }
+  async upload(file, onProgress) {
+    if (!(file instanceof File))
+      throw new Error("영상 파일을 다시 선택해 주세요.");
+    const session = await this.request("upload-begin", {
+      name: file.name,
+      size: file.size,
+    });
+    try {
+      const chunkSize = Math.min(session.chunkSize, 4 * 1024 * 1024);
+      if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0)
+        throw new Error("PC 연결 프로그램의 전송 설정을 확인해 주세요.");
+      for (let offset = 0; offset < file.size;) {
+        let bytes;
+        try {
+          bytes = await file.slice(offset, offset + chunkSize).arrayBuffer();
+        } catch {
+          throw new Error(
+            "선택한 파일을 읽을 수 없습니다. 파일이 이동·변경되지 않았는지 확인하고 다시 선택해 주세요.",
+          );
+        }
+        const expected = offset + bytes.byteLength;
+        const result = await this.request(
+          "upload-chunk",
+          { uploadId: session.id, offset, bytes },
+          [bytes],
+        );
+        if (result.received !== expected)
+          throw new Error("파일 전송 확인에 실패했습니다. 다시 시도해 주세요.");
+        offset = expected;
+        onProgress?.(Math.floor((offset / file.size) * 100));
+      }
+      return await this.request("upload-finish", { uploadId: session.id });
+    } catch (error) {
+      try {
+        await this.request("upload-abort", { uploadId: session.id });
+      } catch {}
+      throw error;
+    }
   }
   close() {
     clearInterval(this.watch);

@@ -18,6 +18,7 @@ import {
 } from "./private-files.js";
 import { OfflineReceiver } from "./offline.js";
 import { lockSession } from "./session-lock.js";
+import { ChunkUploads, CHUNK_SIZE } from "./chunk-uploads.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const offlineMode = process.env.KPLAYER_MODE === "offline";
@@ -85,6 +86,7 @@ const mediaTypes = {
   ".ogg": "audio/ogg",
   ".wav": "audio/wav",
 };
+const chunkUploads = new ChunkUploads(data, mediaTypes);
 const upload = multer({
   storage: multer.diskStorage({
     destination: data,
@@ -315,6 +317,31 @@ app.post("/api/shutdown", (req, res) => {
 });
 app.post("/api/scan", (_, res) => {
   discovery.scan();
+  res.json({ ok: true });
+});
+app.post("/api/uploads", async (req, res) => {
+  res.status(201).json(await chunkUploads.begin(req.body.name, req.body.size));
+});
+app.post(
+  "/api/uploads/:id/chunk",
+  express.raw({ type: "application/octet-stream", limit: CHUNK_SIZE }),
+  async (req, res) => {
+    res.json(
+      await chunkUploads.append(
+        req.params.id,
+        Number(req.query.offset),
+        req.body,
+      ),
+    );
+  },
+);
+app.post("/api/uploads/:id/finish", async (req, res) => {
+  const item = await chunkUploads.finish(req.params.id);
+  items.set(item.id, item);
+  res.status(201).json(exposed(item));
+});
+app.post("/api/uploads/:id/abort", async (req, res) => {
+  await chunkUploads.abort(req.params.id);
   res.json({ ok: true });
 });
 app.post(
@@ -597,7 +624,13 @@ server.on("error", (e) => {
   process.exit(1);
 });
 async function clearSession() {
-  if (activeUploads || picking || castManager.busy || clearing)
+  if (
+    activeUploads ||
+    chunkUploads.busyCount ||
+    picking ||
+    castManager.busy ||
+    clearing
+  )
     throw new Error("파일 열기 또는 TV 작업이 끝나면 다시 시도해 주세요.");
   clearing = true;
   try {
@@ -614,6 +647,7 @@ async function clearSession() {
         await closed;
       }),
     );
+    await chunkUploads.clear();
     items.clear();
     jobs.clear();
     token = randomBytes(24).toString("hex");
@@ -624,6 +658,7 @@ async function clearSession() {
   }
 }
 const privacyTimer = setInterval(() => {
+  if (!clearing && !stopping) chunkUploads.expire().catch(() => {});
   if (presence.size === 0 && Date.now() - lastActivity > 30_000 && !clearing)
     clearSession()
       .then(() => {

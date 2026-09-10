@@ -399,7 +399,9 @@ function App() {
       );
       uploaded.current.set(
         file,
-        await companion.current.request("upload", file),
+        await companion.current.upload(file, (percent) =>
+          setProgress(`내 PC에 파일 준비 중 · ${percent}%`),
+        ),
       );
     }
     return uploaded.current.get(file);
@@ -1004,7 +1006,7 @@ function App() {
                   <li>이 화면에서 TV를 선택하세요.</li>
                 </ol>
                 <p>
-                  최신 PC 연결 프로그램(v1.2.0 이상)이 필요합니다. 팝업이
+                  최신 PC 연결 프로그램(v1.3.1 이상)이 필요합니다. 팝업이
                   차단되면 이 사이트의 팝업을 허용해 주세요.
                 </p>
                 <a

@@ -1,0 +1,108 @@
+# KPLAYER
+
+**[웹 플레이어 열기](https://ssallem.github.io/Kplayer/) · [Windows 다운로드](https://github.com/ssallem/Kplayer/releases/latest)**
+
+내 영상과 자막을 재생하고 TV로 보내는 오픈소스 플레이어입니다. 1% 음량 조절, 동일 제목 자막 자동 연결, 기록을 저장하지 않는 세션을 제공합니다.
+
+## 버전 선택
+
+| 버전          | 실행                  | TV 연결                       | 인터넷                                  |
+| ------------- | --------------------- | ----------------------------- | --------------------------------------- |
+| 공개 웹       | 위 웹사이트 접속      | HTTPS 영상 주소 → Google Cast | 사이트/SDK/영상 서버 접속 필요          |
+| 인터넷 로컬   | `KPLAYER.vbs`         | PC 파일 → Chromecast          | Google 리시버 실행에 필요할 수 있음     |
+| 비인터넷 로컬 | `KPLAYER-Offline.vbs` | PC 파일 → TV 웹브라우저       | 설치 완료 후 불필요, 같은 공유기는 필요 |
+
+공개 웹은 설치 없이 누구나 사용할 수 있습니다. 선택한 로컬 파일은 브라우저에서 재생하며 업로드하지 않습니다. PC 파일을 TV로 보내려면 로컬 버전을 사용하세요. 공개 사이트가 사용자의 PC 파일 서버 역할을 대신할 수는 없습니다.
+
+## Windows 실행
+
+Releases의 Windows ZIP을 내려받아 **압축을 모두 해제**하세요. Node.js 런타임과 실행 의존성을 포함하므로 별도 설치 없이 실행할 수 있습니다.
+
+- 인터넷: `KPLAYER.vbs` → `http://localhost:3210`
+- 비인터넷: `KPLAYER-Offline.vbs` → `http://localhost:3213`
+- 종료: 각각 `KPLAYER-stop.vbs`, `KPLAYER-Offline-stop.vbs`
+- PC와 서버는 재생 중 켜 두세요. 모든 PC 플레이어 탭을 닫으면 약 30초 뒤 TV 재생을 종료하고 임시 데이터를 정리합니다. 백그라운드에 열린 탭은 세션을 유지합니다.
+- Windows 방화벽에서 Node.js의 **개인 네트워크** 통신이 허용되어야 합니다. 공유기의 게스트 네트워크/AP 격리와 VPN도 확인하세요.
+- FFmpeg는 배포본에 포함하지 않습니다. 일반 재생에는 필요 없으며, 호환 변환을 쓰려면 미리 설치하거나 `FFMPEG_PATH`를 지정하세요. 설치된 FFmpeg의 변환은 인터넷 없이 가능합니다.
+
+## 자막과 음량
+
+로컬 버전에서 **파일 열기**로 `movie.mp4`를 선택하면 같은 폴더의 `movie.srt` 또는 `movie.vtt`를 자동으로 읽습니다. 별도 자막 선택은 필요 없습니다. Windows 파일 선택 창은 최근 문서에 추가하지 않는 옵션을 사용합니다.
+
+공개 웹에서는 영상과 자막을 함께 선택/끌어 놓거나 **폴더에서 영상·자막 자동 찾기**를 사용하세요. 브라우저는 사용자가 선택하지 않은 다른 파일을 임의로 읽을 수 없습니다. 로컬 버전에 자막을 나중에 추가해도 같은 제목이면 현재 영상과 자동 연결하며 TV 재생 중이면 현재 위치에서 자막을 적용합니다.
+
+- SRT/VTT, 한글 UTF-8·CP949 지원. 로컬 버전은 UTF-16과 ±600초 싱크 보정도 지원합니다.
+- 로컬 플레이어의 음량 아이콘에서 **±1%, 숫자 입력, 슬라이더, 음소거**를 사용하세요. 공개 웹에는 같은 1% 조절기가 바로 표시됩니다.
+- TV가 자체 음량 단계를 적용하면 실제 반영 값이 반올림될 수 있습니다.
+- MKV 내장 자막 추출, SMI/ASS, DRM 재생은 지원하지 않습니다.
+
+## TV 재생
+
+### 인터넷 / Chromecast
+
+PC와 Google Cast 지원 TV 또는 외장 Chromecast를 같은 공유기에 연결합니다. PC는 유선 LAN이어도 됩니다. 파일을 열고 **TV 연결하기**에서 TV를 고르세요. 검색이 안 되면 내부 IPv4 주소로 직접 연결할 수 있습니다.
+
+TCP 3210은 영상·자막 전송, UDP 5353은 기기 검색, TV의 TCP 8009는 Cast 제어에 사용합니다. `EACCES …:8009`는 실행 환경 또는 보안 프로그램의 연결 차단을 의미할 수 있습니다. 제한된 작업 도구 환경에서 실행한 서버를 종료하고 탐색기에서 일반 실행하세요.
+
+공개 웹의 Chromecast는 Chrome 데스크톱과 인터넷이 필요하며 **직접 재생 가능한 HTTPS 미디어/자막 주소**만 전송합니다. 영상 서버의 CORS와 TV의 코덱 지원이 필요합니다. YouTube 페이지 URL, 브라우저의 로컬 blob URL은 Cast 대상으로 지원하지 않습니다. HLS/DASH는 TV의 지원 여부에 따라 재생되며 로컬 브라우저 미리보기는 제한될 수 있습니다.
+
+### 비인터넷 / TV 브라우저
+
+1. PC에서 `KPLAYER-Offline.vbs`를 실행합니다.
+2. **TV 연결하기**에 표시된 PC의 주소(예: `http://192.168.0.10:3213/tv`)를 TV 웹브라우저에서 엽니다.
+3. PC의 6자리 번호를 TV에 입력합니다.
+4. PC에서 영상 파일을 열고 **이 영상을 TV에서 재생**을 누릅니다.
+
+TCP 3213이 TV에서 PC로 접근 가능해야 합니다. 이 모드는 Google SDK/리시버를 호출하지 않습니다. **TV 웹브라우저가 필요**하며 브라우저가 없는 Chromecast 동글만으로는 이 방식을 사용할 수 없습니다. 브라우저의 자동재생 정책 때문에 TV 화면의 재생 버튼을 한 번 눌러야 할 수 있습니다. 영상 코덱은 TV 브라우저 지원에 따릅니다.
+
+## 기록과 보안
+
+- 앱의 파일명·원본 경로·재생 목록은 메모리에만 유지하고 디스크에 재생 이력을 저장하지 않습니다.
+- 로컬 **파일 열기**는 원본 파일을 직접 읽고 복사하지 않습니다. 원본은 수정하거나 삭제하지 않습니다.
+- **끌어 놓기·호환 변환**은 PC에 임시 복사본이 생깁니다. **기록 없는 재생 → 재생 종료·임시 파일 삭제**, 서버 정상 종료, 모든 PC 탭 종료 후 약 30초가 지나면 정리합니다. 강제 종료 시 남은 임시 복사본은 다음 실행 때 정리합니다.
+- 이전 버전의 `library.json`은 삭제하고 기존 앱 복사본을 첫 임시 세션으로 옮깁니다. 이후 영구 목록은 생성하지 않습니다.
+- 영상·API 응답에는 `no-store`를 적용합니다. TV 스트림은 임의 토큰·파일 ID와 해당 TV IP로 제한하며, TV에 보내는 메타데이터 제목은 `KPLAYER`로 고정합니다.
+- 클라우드 영상 업로드나 분석 도구는 없습니다. 공개 웹의 GitHub 접속 로그, Google Cast 플랫폼, 브라우저 방문 기록, OS·보안 프로그램·TV 기록은 별개입니다.
+- 로컬 영상 전송은 **신뢰하는 사설 LAN의 HTTP**를 사용합니다. 인터넷에 서버 포트를 공개하지 마세요. 일반 삭제이므로 복구 불가능한 완전 삭제를 보장하지 않습니다.
+
+상세한 보안 경계는 [SECURITY.md](SECURITY.md)를 확인하세요.
+
+## 개발
+
+Node.js 22.12 이상이 필요합니다.
+
+```powershell
+npm ci
+npm run build
+npm start
+# 공개 웹 개발 / 빌드
+npm run dev:site
+npm run build:site
+# 로컬 개발
+npm run dev
+```
+
+`KPLAYER_MODE=offline`은 비인터넷 모드, `PORT`는 포트, `KPLAYER_DATA`는 임시 저장 루트를 지정합니다. GitHub Actions가 `main` 변경 시 공개 웹을 Pages에 배포합니다.
+
+## 검증
+
+```powershell
+npm test
+npm run build
+npm run build:site
+npm run test:ui
+```
+
+단위 테스트는 자막/인코딩/자동 연결/원본 보존/임시 정리와 Cast V2 TLS 시뮬레이터를 검사합니다. 브라우저 테스트는 Edge와 FFmpeg/ffprobe가 필요하며 로컬 영상 재생, 1% 음량, 자막, 공개 웹의 무업로드, 접근성, 오프라인 TV 브라우저 전송과 토큰 폐기를 검사합니다. 비인터넷 테스트에서는 외부 네트워크 요청을 차단합니다. 물리 TV의 브라우저/코덱에 따른 차이는 실제 기기에서 확인해야 합니다.
+
+테스트 인증서/키는 `tests/fixtures`의 로컬 시뮬레이터 전용입니다. `data`, 빌드 산출물, 사용자 영상·자막과 런타임은 Git 추적에서 제외합니다.
+
+## 참고와 라이선스
+
+MIT 라이선스. React, Vite, Express, multicast-dns, castv2-client, iconv-lite, Lucide, Manrope와 Noto Sans KR을 사용합니다. 로컬 Cast는 커뮤니티 Cast V2 구현이고 공개 웹은 Google Web Sender SDK를 사용합니다. 각 의존성과 Node.js 런타임은 해당 라이선스가 적용됩니다.
+
+- [Google Cast 미디어/자막 지원](https://developers.google.com/cast/docs/media)
+- [Google Web Sender SDK](https://developers.google.com/cast/docs/web_sender/integrate)
+- [Cast 기본 리시버](https://developers.google.com/cast/docs/web_receiver)
+- [castv2-client](https://github.com/thibauts/node-castv2-client)
+- [Windows OPENFILENAME](https://learn.microsoft.com/en-us/windows/win32/api/commdlg/ns-commdlg-openfilenamew)

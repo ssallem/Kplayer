@@ -4,7 +4,7 @@ export function connectionError(error) {
   if (["EACCES", "EPERM"].includes(error.code)) {
     return Object.assign(
       new Error(
-        "PC 실행 환경에서 TV 통신이 차단되었습니다. KPLAYER 서버를 종료하고 KPLAYER.vbs로 다시 실행해 주세요. 계속 실패하면 보안 프로그램의 네트워크 차단을 확인해 주세요.",
+        "PC 실행 환경에서 TV 통신이 차단되었습니다. KPLAYER 서버를 종료하고 KPLAYER-Connect.exe로 다시 실행해 주세요. 계속 실패하면 보안 프로그램의 네트워크 차단을 확인해 주세요.",
       ),
       { code: error.code },
     );

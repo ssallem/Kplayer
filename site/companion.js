@@ -64,7 +64,7 @@ export class Companion {
         cleanup();
         reject(
           new Error(
-            "KPLAYER.vbs를 실행하고 최신 버전인지 확인한 뒤 다시 연결해 주세요.",
+            "KPLAYER-Connect.exe를 실행하고 최신 버전인지 확인한 뒤 다시 연결해 주세요.",
           ),
         );
       }, 60000);

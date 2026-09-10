@@ -14,6 +14,7 @@ foreach($file in @('package.json','package-lock.json','README.md','SECURITY.md',
 if($LASTEXITCODE -ne 0){throw 'Production dependency install failed.'}
 New-Item -ItemType Directory -Path (Join-Path $packagePath 'runtime') | Out-Null
 Copy-Item -LiteralPath (Get-Command node).Source -Destination (Join-Path $packagePath 'runtime/node.exe')
+& (Join-Path $projectPath 'scripts/build-launcher.ps1') -Destination $packagePath
 $nodeVersion= & node -p 'process.version'
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nodejs/node/$nodeVersion/LICENSE" -OutFile (Join-Path $packagePath 'runtime/LICENSE-Node.txt')
 Add-Type -AssemblyName System.IO.Compression.FileSystem

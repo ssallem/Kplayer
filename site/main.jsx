@@ -323,7 +323,7 @@ function App() {
         await companion.current.request("scan");
         const state = await companion.current.request("state");
         if (state.mode !== "internet")
-          throw new Error("Chromecast는 KPLAYER.vbs로 실행해 주세요.");
+          throw new Error("Chromecast는 KPLAYER-Connect.exe로 실행해 주세요.");
         setDevices(state.devices);
         setProgress("같은 Wi-Fi에 연결된 TV를 선택해 주세요.");
       } catch (e) {
@@ -861,7 +861,8 @@ function App() {
           <div>
             <h2>내 영상과 자막을 TV로 보내세요.</h2>
             <p>
-              같은 Wi-Fi · Google Cast TV · PC 파일은 KPLAYER.vbs 실행 후 연결
+              같은 Wi-Fi · Google Cast TV · PC 파일은 KPLAYER-Connect.exe 실행
+              후 연결
             </p>
           </div>
           <button
@@ -888,26 +889,28 @@ function App() {
                 <Wifi size={24} />
               </span>
               <span className="version-type">INTERNET</span>
-              <h3>Chromecast 로컬 버전</h3>
+              <h3>웹에서 TV로, PC 연결 도구</h3>
               <p>
-                내 PC의 영상과 자막을 Chromecast로 직접 전송합니다. 원본 파일을
-                열면 같은 폴더의 자막도 자동 연결됩니다.
+                인터넷용 플레이어는 이 웹사이트에서 사용하세요. 내 PC 파일을
+                TV로 보낼 때만 작은 연결 도구를 실행하면 됩니다.
               </p>
               <a
                 className="button dark"
                 href="https://github.com/ssallem/Kplayer/releases/latest"
               >
                 <Download size={16} />
-                Windows 다운로드
+                PC 연결 EXE 다운로드
               </a>
-              <small>KPLAYER.vbs 실행 · 리시버 실행에 인터넷 필요</small>
+              <small>
+                KPLAYER-Connect.exe 실행 · 리시버 실행에 인터넷 필요
+              </small>
             </article>
             <article>
               <span className="version-icon">
                 <WifiOff size={24} />
               </span>
               <span className="version-type">OFFLINE</span>
-              <h3>인터넷 없는 로컬 버전</h3>
+              <h3>인터넷 없이, 로컬 플레이어</h3>
               <p>
                 같은 공유기만 있으면 됩니다. TV 브라우저에서 PC의 주소를 열고
                 6자리 번호를 입력해 연결하세요.
@@ -917,9 +920,9 @@ function App() {
                 href="https://github.com/ssallem/Kplayer/releases/latest"
               >
                 <Download size={16} />
-                오프라인 버전 다운로드
+                비인터넷 EXE 다운로드
               </a>
-              <small>KPLAYER-Offline.vbs 실행 · TV 웹브라우저 필요</small>
+              <small>KPLAYER-Offline.exe 실행 · TV 웹브라우저 필요</small>
             </article>
           </div>
         </section>
@@ -992,7 +995,8 @@ function App() {
               <>
                 <ol>
                   <li>
-                    다운로드한 폴더의 <strong>KPLAYER.vbs</strong>를 실행하세요.
+                    다운로드한 폴더의 <strong>KPLAYER-Connect.exe</strong>를
+                    실행하세요.
                   </li>
                   <li>
                     PC 연결 창에서 <strong>웹 플레이어 연결</strong>을 누르세요.

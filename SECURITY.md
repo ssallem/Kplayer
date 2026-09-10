@@ -4,10 +4,12 @@ KPLAYER is designed for a trusted home network. Do not expose a local server por
 
 ## Public web player
 
-- Local files are opened through browser object URLs. No upload endpoint, analytics, account database, cookies, localStorage or IndexedDB is used by the application.
+- Local playback uses browser object URLs without transmission. Casting PC files uses a user-connected loopback companion window: selected files are temporarily copied to the user's PC, never uploaded to a public server. No analytics, account database, cookies, localStorage or IndexedDB is used by the application.
 - Media and subtitle names are not included in page URLs. Clearing the session revokes object URLs and releases file references. Internet addresses remain in memory until cleared or the tab closes.
 - Loading a remote media address contacts its origin. The Google Cast SDK is loaded from Google only when the user starts Cast. GitHub Pages may retain site access logs independently of this application.
-- Only publicly reachable HTTPS media/track URLs can be sent from the public site. Local blob URLs are not sent to a remote receiver. Use the Windows local server to Cast files from a PC.
+- HTTPS media/track URLs use the Google Cast SDK. Local files use the companion's existing LAN streaming and Cast controls. Local blob URLs are not sent to the receiver.
+- The companion window checks the exact opener reference, `https://ssallem.github.io` origin and one-time nonce, and requires a click in its own top-level UI before transferring a MessagePort. It cannot be framed. Direct cross-origin API requests remain denied; no public-origin CORS exception was added. Trust applies to the entire ssallem.github.io origin, including its other projects. `KPLAYER_WEB_ORIGIN` is an explicit server-side override for self-hosting, not a web request parameter.
+- The MessagePort permits only state, selected File upload, scan, connect, load, playback control and session clear. File loads are restricted to IDs imported through that window; other session file lists are filtered out. Arbitrary paths, native picker invocation, conversion, shutdown and arbitrary API forwarding are not exposed through the bridge. The web and local app share TV playback and session clear. Keep the companion window open during use; close all local player windows to trigger idle cleanup, or explicitly clear the session.
 
 ## Local internet/offline players
 

@@ -204,6 +204,27 @@ app.use((req, res, next) => {
     return res.sendStatus(403);
   next();
 });
+app.get("/web-bridge", (_, res) => {
+  res.set({
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy":
+      "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
+  });
+  res.sendFile(path.join(root, "public/web-bridge.html"));
+});
+app.get("/web-bridge/config.js", (_, res) =>
+  res
+    .type("application/javascript")
+    .send(
+      `window.KPLAYER_WEB_ORIGIN=${JSON.stringify(process.env.KPLAYER_WEB_ORIGIN || "https://ssallem.github.io")};`,
+    ),
+);
+app.get("/web-bridge/client.js", (_, res) =>
+  res.sendFile(path.join(root, "public/web-bridge.js")),
+);
+app.get("/web-bridge/style.css", (_, res) =>
+  res.sendFile(path.join(root, "public/web-bridge.css")),
+);
 app.get("/api/presence", (req, res) => {
   res.set({ "Content-Type": "text/event-stream", Connection: "keep-alive" });
   res.flushHeaders();

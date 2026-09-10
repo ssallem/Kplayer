@@ -610,6 +610,25 @@ footer a {
 .privacy-modal .button {
   margin-top: 10px;
 }
+.tv-modal ol {
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 2;
+}
+.tv-devices .button {
+  justify-content: space-between;
+  text-align: left;
+  white-space: normal;
+}
+.tv-devices span {
+  flex: 1;
+}
+.tv-devices small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  margin-top: 4px;
+}
 @media (max-width: 1000px) {
   .workbench {
     grid-template-columns: minmax(0, 1fr) 280px;

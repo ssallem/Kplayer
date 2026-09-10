@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KPLAYER · PC 연결</title>
+    <link rel="stylesheet" href="/web-bridge/style.css" />
+  </head>
+  <body>
+    <main>
+      <span class="mark">KPLAYER.</span>
+      <h1>내 PC와 웹을 연결합니다.</h1>
+      <p>
+        웹에서 선택한 영상과 자막을 이 PC를 통해 TV에 전달합니다. 외부 서버에는
+        업로드하지 않습니다.
+      </p>
+      <p id="status" role="status">
+        공개 플레이어의 연결 요청을 기다리고 있습니다.
+      </p>
+      <button id="connect" disabled>웹 플레이어 연결</button>
+      <p class="small">
+        연결 후 이 창을 열어 두고 원래 웹 화면에서 TV를 선택하세요. 웹과 로컬
+        플레이어는 이번 재생 세션을 함께 사용합니다.
+      </p>
+      <button id="disconnect" hidden>재생 종료·세션 비우기</button>
+    </main>
+    <script src="/web-bridge/config.js"></script>
+    <script src="/web-bridge/client.js"></script>
+  </body>
+</html>

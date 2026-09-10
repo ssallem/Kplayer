@@ -24,6 +24,7 @@ import "@fontsource-variable/manrope";
 import "@fontsource-variable/noto-sans-kr";
 import "./style.css";
 import { mediaStem } from "../shared/media.js";
+import { Companion } from "./companion.js";
 
 let sdkPromise;
 function castSdk() {
@@ -96,6 +97,10 @@ function App() {
     volumeRef = useRef(0.7),
     volumeQueue = useRef(null),
     volumeBusy = useRef(false);
+  const companion = useRef(null),
+    uploaded = useRef(new Map()),
+    bridgeCasting = useRef(false),
+    bridgeState = useRef(null);
   const [item, setItem] = useState(null),
     [caption, setCaption] = useState(null),
     [subOn, setSubOn] = useState(true),
@@ -110,7 +115,58 @@ function App() {
     [privacy, setPrivacy] = useState(false),
     [showAddress, setShowAddress] = useState(false),
     [paused, setPaused] = useState(false),
+    [tvDialog, setTvDialog] = useState(false),
+    [pcReady, setPcReady] = useState(false),
+    [devices, setDevices] = useState([]),
+    [tvAddress, setTvAddress] = useState(""),
+    [progress, setProgress] = useState(""),
     [mediaType, setMediaType] = useState("video/mp4");
+  if (!companion.current)
+    companion.current = new Companion(() => {
+      setPcReady(false);
+      uploaded.current.clear();
+      if (bridgeCasting.current) {
+        setConnected("");
+        bridgeCasting.current = false;
+        setNotice("PC 연결 창이 닫혔습니다. TV 연결을 다시 열어 주세요.");
+      }
+    });
+  useEffect(() => {
+    if (!pcReady) return;
+    let cancelled = false,
+      polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const state = await companion.current.request("state");
+        if (cancelled) return;
+        bridgeState.current = state.cast;
+        setDevices(state.devices);
+        if (bridgeCasting.current) {
+          setConnected(
+            state.cast.connected ? state.cast.device?.name || "내 TV" : "",
+          );
+          setPaused(state.cast.playerState === "PAUSED");
+          if (!volumeBusy.current && typeof state.cast.volume === "number") {
+            setVolume(state.cast.volume);
+            volumeRef.current = state.cast.volume;
+          }
+          if (!state.cast.connected) bridgeCasting.current = false;
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        polling = false;
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [pcReady]);
   useEffect(() => {
     if (video.current) video.current.volume = volume;
   }, [volume, item]);
@@ -125,7 +181,7 @@ function App() {
     return () => el.textTracks.removeEventListener("addtrack", apply);
   }, [caption, subOn, item]);
   useEffect(() => {
-    if (!privacy) return;
+    if (!privacy && !tvDialog) return;
     const previous = document.activeElement;
     const modal = document.querySelector('[role="dialog"]');
     const focusable = () =>
@@ -134,7 +190,10 @@ function App() {
       );
     focusable()[0]?.focus();
     const key = (e) => {
-      if (e.key === "Escape") setPrivacy(false);
+      if (e.key === "Escape") {
+        setPrivacy(false);
+        setTvDialog(false);
+      }
       if (e.key === "Tab") {
         const elements = focusable(),
           first = elements[0],
@@ -153,7 +212,7 @@ function App() {
       modal.removeEventListener("keydown", key);
       previous?.focus();
     };
-  }, [privacy]);
+  }, [privacy, tvDialog]);
   useEffect(() => {
     const clear = () => {
       for (const value of owned.current) URL.revokeObjectURL(value);
@@ -174,11 +233,16 @@ function App() {
       throw new Error("자막은 10MB 이하만 지원합니다.");
     setCaption({
       name: file.name,
+      file,
       url: objectUrl(new Blob([await subtitleVtt(file)], { type: "text/vtt" })),
     });
     setSubOn(true);
   }
   async function openFiles(list) {
+    if (busy) {
+      setError("TV 연결 또는 파일 준비가 끝난 뒤 다른 파일을 열어 주세요.");
+      return;
+    }
     setError("");
     try {
       const all = [...list];
@@ -190,6 +254,7 @@ function App() {
         ...all.filter((f) => /\.(srt|vtt)$/i.test(f.name)),
       ];
       if (media) {
+        await endCurrentCast();
         selectedFile.current = media;
         setItem({ name: media.name, url: objectUrl(media), local: true });
         setCaption(null);
@@ -198,7 +263,7 @@ function App() {
       const active = media || selectedFile.current;
       const match =
         active &&
-        subFiles.current.find(
+        subFiles.current.findLast(
           (f) => mediaStem(f.name) === mediaStem(active.name),
         );
       if (match) {
@@ -214,13 +279,27 @@ function App() {
       setError(e.message);
     }
   }
-  function loadUrl(e) {
+  async function endCurrentCast() {
+    if (bridgeCasting.current)
+      await companion.current.request("control", { action: "disconnect" });
+    bridgeCasting.current = false;
+    session.current?.endSession(true);
+    session.current = null;
+    remote.current = null;
+    setConnected("");
+  }
+  async function loadUrl(e) {
     e.preventDefault();
+    if (busy) {
+      setError("TV 연결 또는 파일 준비가 끝난 뒤 주소를 열어 주세요.");
+      return;
+    }
     try {
-      setItem({ name: "인터넷 영상", url: httpsUrl(url), local: false });
-      setCaption(
-        subUrl ? { name: "인터넷 자막", url: httpsUrl(subUrl) } : null,
-      );
+      const address = httpsUrl(url),
+        subtitle = subUrl ? httpsUrl(subUrl) : null;
+      await endCurrentCast();
+      setItem({ name: "인터넷 영상", url: address, local: false });
+      setCaption(subtitle ? { name: "인터넷 자막", url: subtitle } : null);
       setSubOn(true);
       setError("");
     } catch (e) {
@@ -228,14 +307,31 @@ function App() {
     }
   }
   async function castVideo() {
+    if (busy) return;
     if (!item) {
-      setError("먼저 재생할 인터넷 영상 주소를 입력해 주세요.");
+      setError("먼저 영상 파일이나 인터넷 영상 주소를 선택해 주세요.");
       return;
     }
     if (item.local) {
-      setNotice(
-        "PC 파일을 TV로 보내려면 아래 로컬 버전을 사용하세요. 공개 사이트는 영상을 업로드하지 않습니다.",
-      );
+      setTvDialog(true);
+      setBusy(true);
+      setError("");
+      setProgress("PC 연결 창에서 ‘웹 플레이어 연결’을 눌러 주세요.");
+      try {
+        await companion.current.connect();
+        setPcReady(true);
+        await companion.current.request("scan");
+        const state = await companion.current.request("state");
+        if (state.mode !== "internet")
+          throw new Error("Chromecast는 KPLAYER.vbs로 실행해 주세요.");
+        setDevices(state.devices);
+        setProgress("같은 Wi-Fi에 연결된 TV를 선택해 주세요.");
+      } catch (e) {
+        setError(e.message);
+        setProgress(e.message);
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     setBusy(true);
@@ -294,11 +390,73 @@ function App() {
       setBusy(false);
     }
   }
+  async function prepareFile(file) {
+    if (!uploaded.current.has(file)) {
+      setProgress(
+        /\.(srt|vtt)$/i.test(file.name)
+          ? "자막을 PC에 연결하고 있습니다…"
+          : "영상을 내 PC에 준비하고 있습니다. 큰 파일은 잠시 걸릴 수 있습니다…",
+      );
+      uploaded.current.set(
+        file,
+        await companion.current.request("upload", file),
+      );
+    }
+    return uploaded.current.get(file);
+  }
+  async function loadOnTv(
+    address,
+    currentTime = video.current?.currentTime || 0,
+    autoplay = true,
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      const media = await prepareFile(selectedFile.current);
+      const subtitle = caption?.file ? await prepareFile(caption.file) : null;
+      if (address) {
+        setProgress("TV에 연결하고 있습니다…");
+        await companion.current.request("connect", { address });
+      }
+      setProgress("TV에서 영상과 자막을 열고 있습니다…");
+      const state = await companion.current.request("load", {
+        itemId: media.id,
+        subtitleId: subtitle?.id || null,
+        currentTime,
+        subtitlesEnabled: subOn,
+        autoplay,
+      });
+      bridgeCasting.current = true;
+      bridgeState.current = state;
+      setConnected(state.device?.name || "내 TV");
+      setPaused(state.playerState === "PAUSED");
+      if (typeof state.volume === "number") {
+        setVolume(state.volume);
+        volumeRef.current = state.volume;
+      }
+      video.current?.pause();
+      setTvDialog(false);
+      setNotice("내 PC를 통해 TV에서 재생합니다. PC 연결 창을 열어 두세요.");
+    } catch (e) {
+      setError(e.message);
+      setProgress(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (caption?.file && bridgeCasting.current)
+      loadOnTv(
+        null,
+        bridgeState.current?.currentTime || 0,
+        bridgeState.current?.playerState !== "PAUSED",
+      );
+  }, [caption]);
   async function adjust(value) {
     const next = Math.round(Math.max(0, Math.min(1, value)) * 100) / 100;
     setVolume(next);
     volumeRef.current = next;
-    if (!session.current) return;
+    if (!session.current && !bridgeCasting.current) return;
     volumeQueue.current = next;
     if (volumeBusy.current) return;
     volumeBusy.current = true;
@@ -306,7 +464,12 @@ function App() {
       while (volumeQueue.current !== null) {
         const value = volumeQueue.current;
         volumeQueue.current = null;
-        await session.current.setVolume(value);
+        if (bridgeCasting.current)
+          await companion.current.request("control", {
+            action: "volume",
+            value,
+          });
+        else await session.current.setVolume(value);
       }
     } catch {
       setError("TV 음량 변경에 실패했습니다.");
@@ -315,6 +478,24 @@ function App() {
     }
   }
   function control(action) {
+    if (bridgeCasting.current) {
+      companion.current
+        .request(
+          "control",
+          action === "toggle"
+            ? { action: paused ? "play" : "pause" }
+            : {
+                action: "seek",
+                value: (bridgeState.current?.currentTime || 0) + 10,
+              },
+        )
+        .then((state) => {
+          bridgeState.current = state;
+          setPaused(state.playerState === "PAUSED");
+        })
+        .catch((e) => setError(e.message));
+      return;
+    }
     const media = remote.current;
     if (!media) return;
     const fail = () => setError("TV 제어에 실패했습니다.");
@@ -331,6 +512,10 @@ function App() {
   function toggleSubs() {
     const next = !subOn;
     setSubOn(next);
+    if (bridgeCasting.current)
+      companion.current
+        .request("control", { action: "subtitles", value: next && !!caption })
+        .catch((e) => setError(e.message));
     if (remote.current) {
       const request = new chrome.cast.media.EditTracksInfoRequest(
         next && caption ? [1] : [],
@@ -342,7 +527,21 @@ function App() {
       );
     }
   }
-  function clear() {
+  async function clear() {
+    if (busy) {
+      setError("파일 전송 또는 TV 연결이 끝난 뒤 비워 주세요.");
+      return;
+    }
+    if (pcReady) {
+      try {
+        await companion.current.request("clear");
+        uploaded.current.clear();
+        bridgeCasting.current = false;
+      } catch (e) {
+        setError(e.message);
+        return;
+      }
+    }
     session.current?.endSession(true);
     session.current = null;
     remote.current = null;
@@ -399,15 +598,15 @@ function App() {
               좋아하는 순간을,
               <br />더 큰 화면으로<span>.</span>
             </h1>
-            <p>내 영상과 자막을 가볍게. 설치 없이 시작하는 나만의 플레이어.</p>
+            <p>내 영상과 자막을 가볍게. 웹에서 고르고, TV로 이어 보세요.</p>
           </div>
           <div className="hero-note">
             <span>
               <ShieldCheck size={27} />
             </span>
-            <strong>파일 업로드 없이.</strong>
+            <strong>외부 서버 업로드 없이.</strong>
             <p>
-              로컬 파일은 브라우저 안에서 재생합니다.
+              PC 파일은 브라우저 또는 내 PC를 통해 TV에서 재생합니다.
               <br />
               회원가입도, 재생 기록 저장도 없습니다.
             </p>
@@ -486,7 +685,7 @@ function App() {
               <button
                 onClick={castVideo}
                 disabled={busy}
-                title="인터넷 영상을 Chromecast로 전송"
+                title="영상과 자막을 Chromecast로 전송"
               >
                 <Cast size={20} />
               </button>
@@ -515,7 +714,7 @@ function App() {
               {tab === "local" ? (
                 <>
                   <p>
-                    PC에서만 재생합니다.
+                    PC에서 재생하거나 TV로 전송합니다.
                     <br />
                     같은 제목의 SRT·VTT는 자동으로 연결돼요.
                   </p>
@@ -660,12 +859,14 @@ function App() {
             <Cast size={27} />
           </span>
           <div>
-            <h2>인터넷 영상을 TV로 보내세요.</h2>
-            <p>Chrome 데스크톱 · 같은 Wi-Fi · Google Cast 지원 TV</p>
+            <h2>내 영상과 자막을 TV로 보내세요.</h2>
+            <p>
+              같은 Wi-Fi · Google Cast TV · PC 파일은 KPLAYER.vbs 실행 후 연결
+            </p>
           </div>
           <button
             className="button dark"
-            disabled={busy || !item || item.local}
+            disabled={busy || !item}
             onClick={castVideo}
           >
             <Cast size={17} />
@@ -676,7 +877,10 @@ function App() {
           <div className="section-title">
             <div className="eyebrow">TWO WAYS TO WATCH</div>
             <h2>당신의 환경에 맞게.</h2>
-            <p>PC 파일을 TV로 전송하려면 Windows 로컬 버전을 사용하세요.</p>
+            <p>
+              PC 연결 프로그램을 실행하면 이 웹 화면에서도 파일과 자막을 TV로
+              보낼 수 있습니다.
+            </p>
           </div>
           <div className="version-grid">
             <article>
@@ -724,10 +928,11 @@ function App() {
           <div>
             <h3>파일은 당신의 공간에.</h3>
             <p>
-              이 사이트는 영상·자막을 업로드하거나 재생 기록을 저장하지
-              않습니다. 인터넷 주소 재생은 해당 영상 서버에 요청하며, Cast 연결
-              버튼을 누르면 Google SDK를 불러옵니다. GitHub의 사이트 접속 로그와
-              브라우저·TV의 기록은 별개입니다.
+              영상·자막은 외부 서버에 업로드하지 않습니다. PC 파일을 TV로 전송할
+              때는 연결한 내 PC에 임시 복사본이 생깁니다. 재생 기록은 저장하지
+              않습니다. 인터넷 주소 재생은 해당 영상 서버에 요청하며, 인터넷
+              영상의 Cast 연결 시 Google SDK를 불러옵니다. GitHub의 사이트 접속
+              로그와 브라우저·TV의 기록은 별개입니다.
             </p>
           </div>
           <button onClick={() => setPrivacy(true)}>
@@ -764,6 +969,121 @@ function App() {
           e.target.value = "";
         }}
       />
+      {tvDialog && (
+        <div className="modal-backdrop" onClick={() => setTvDialog(false)}>
+          <section
+            className="privacy-modal tv-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="TV 연결"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="close"
+              aria-label="TV 연결 닫기"
+              onClick={() => setTvDialog(false)}
+            >
+              <X />
+            </button>
+            <Cast size={30} />
+            <h2>어디에서 감상할까요?</h2>
+            <p role="status">{progress}</p>
+            {!pcReady ? (
+              <>
+                <ol>
+                  <li>
+                    다운로드한 폴더의 <strong>KPLAYER.vbs</strong>를 실행하세요.
+                  </li>
+                  <li>
+                    PC 연결 창에서 <strong>웹 플레이어 연결</strong>을 누르세요.
+                  </li>
+                  <li>이 화면에서 TV를 선택하세요.</li>
+                </ol>
+                <p>
+                  최신 PC 연결 프로그램(v1.2.0 이상)이 필요합니다. 팝업이
+                  차단되면 이 사이트의 팝업을 허용해 주세요.
+                </p>
+                <a
+                  className="button outline wide"
+                  href="https://github.com/ssallem/Kplayer/releases/latest"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  PC 연결 프로그램 다운로드
+                </a>
+                <button
+                  className="button dark wide"
+                  onClick={castVideo}
+                  disabled={busy}
+                >
+                  PC 연결 다시 시도
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="tv-devices">
+                  {devices.map((device) => (
+                    <button
+                      className="button outline wide"
+                      key={device.id || device.address}
+                      disabled={busy}
+                      onClick={() => loadOnTv(device.address)}
+                    >
+                      <Cast size={18} />
+                      <span>
+                        {device.name}
+                        <small>
+                          {device.model} · {device.address}
+                        </small>
+                      </span>
+                      <ArrowRight size={16} />
+                    </button>
+                  ))}
+                </div>
+                {!devices.length && (
+                  <p>
+                    아직 발견된 TV가 없습니다. 같은 공유기에 연결했는지
+                    확인하거나 TV의 IP 주소를 입력하세요.
+                  </p>
+                )}
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() =>
+                    companion.current
+                      .request("scan")
+                      .catch((e) => setError(e.message))
+                  }
+                >
+                  TV 다시 검색
+                </button>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    loadOnTv(tvAddress);
+                  }}
+                >
+                  <label>
+                    TV IP 주소
+                    <input
+                      aria-label="TV IP 주소"
+                      value={tvAddress}
+                      onChange={(e) => setTvAddress(e.target.value)}
+                      placeholder="192.168.0.20"
+                      autoComplete="off"
+                      required
+                    />
+                  </label>
+                  <button className="button dark wide" disabled={busy}>
+                    이 TV로 재생
+                  </button>
+                </form>
+                <p>영상은 내 PC에만 임시 복사됩니다. 연결 창을 열어 두세요.</p>
+              </>
+            )}
+          </section>
+        </div>
+      )}
       {privacy && (
         <div className="modal-backdrop" onClick={() => setPrivacy(false)}>
           <section
@@ -783,9 +1103,10 @@ function App() {
             <ShieldCheck size={30} />
             <h2>기록 없이 즐기세요.</h2>
             <p>
-              파일 참조와 재생 주소는 이 탭의 메모리에만 존재합니다. 서버
-              업로드, 분석 도구, localStorage, IndexedDB, 계정 기능을 사용하지
-              않습니다.
+              웹의 파일 참조와 재생 주소는 이 탭의 메모리에만 존재합니다. TV
+              전송 시 선택한 파일을 연결된 내 PC에 임시 복사하며 외부 서버로
+              보내지 않습니다. 분석 도구, localStorage, IndexedDB, 계정 기능을
+              사용하지 않습니다.
             </p>
             <p>
               로컬 버전의 드래그 파일과 변환 파일은 임시 복사본이 생기며, 세션
